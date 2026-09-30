@@ -1,0 +1,21 @@
+[project]
+name = "docmind-ai"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+authors = [
+    { name = "M E Hasareli", email = "eran.hasarali.2001@gmail.com" }
+]
+requires-python = ">=3.14"
+dependencies = [
+    "dotenv>=0.9.9",
+    "ipykernel>=7.4.0",
+    "openai>=3.22.1",
+]
+
+[project.scripts]
+docmind-ai = "docmind_ai:main"
+
+[build-system]
+requires = ["uv_build>=0.12.19,<0.13.0"]
+build-backend = "uv_build"
