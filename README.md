@@ -3,22 +3,26 @@
 The AI engine of **DocMind**, an app where you upload your own documents and chat with them, getting answers that cite the exact
 page they came from. The product story and the full picture are in `../docmind-web-service/README.md`; this README covers the AI service.
 
-> **Status: not built yet.** So far this folder is a project skeleton (Python project, folders, a notebook for experiments).
-> The service below is the plan. It is written down so the API can be built against it; see `CLAUDE.md` for the rules.
+> **Status: building.** Done: the FastAPI skeleton (env validation, `X-Internal-Key`, JSON logs, `GET /health`), the model layer
+> (`core/llm.py` and `core/embeddings.py`: retries, timeouts, usage), and the document pipeline pieces (`core/parsing.py` for
+> PDF/DOCX/TXT/MD, `core/cleaning.py` for repeated headers and footers, `core/chunking.py`, `core/web.py` for web pages, and
+> `tools/` for the SSRF guard and safe fetcher). Endpoints live: `GET /health`, `POST /ingest/file`, `POST /ingest/url`,
+> `POST /embed`, `POST /rewrite-query`, `POST /title`, and `POST /answer` (JSON and SSE). Still to build: `/evals/judge`; the
+> table below describes the full service. See `CLAUDE.md` for the rules.
 
 ## What this service does
 
 Everything that needs a model or document parsing lives here, so the rest of the system never touches an AI SDK:
 
-| Job | Endpoint (planned) | What happens |
-|---|---|---|
-| **Read a document** | `POST /ingest/file`, `POST /ingest/url` | Extract text (PDF, Word, web page), remove repeated headers/footers, split into ~500-token chunks with an 80-token overlap (keeping page number and heading), and embed the chunks |
-| **Embed text** | `POST /embed` | Turn up to 100 texts into vectors (OpenAI `text-embedding-3-small`, 1536 dimensions) |
-| **Understand a follow-up** | `POST /rewrite-query` | "What about part-time?" becomes a standalone search query, using the last few messages |
-| **Answer** | `POST /answer` | Claude answers **only** from the passages it is given, cites them as `[1]`, `[2]`, and streams the text as server-sent events |
-| **Name a chat** | `POST /title` | A short title (6 words max) from the first question |
-| **Grade an answer** | `POST /evals/judge` | Scores correctness and faithfulness from 0 to 1 with a short reasoning, for the eval feature |
-| **Health** | `GET /health` | Liveness (no key needed) |
+| Job                        | Endpoint (planned)                      | What happens                                                                                                                                                                       |
+| -------------------------- | --------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Read a document**        | `POST /ingest/file`, `POST /ingest/url` | Extract text (PDF, Word, web page), remove repeated headers/footers, split into ~500-token chunks with an 80-token overlap (keeping page number and heading), and embed the chunks |
+| **Embed text**             | `POST /embed`                           | Turn up to 100 texts into vectors (OpenAI `text-embedding-3-small`, 1536 dimensions)                                                                                               |
+| **Understand a follow-up** | `POST /rewrite-query`                   | "What about part-time?" becomes a standalone search query, using the last few messages                                                                                             |
+| **Answer**                 | `POST /answer`                          | The configured chat model answers **only** from the passages it is given, cites them as `[1]`, `[2]`, and returns JSON or server-sent events                                       |
+| **Name a chat**            | `POST /title`                           | A short title (6 words max) from the first question                                                                                                                                |
+| **Grade an answer**        | `POST /evals/judge`                     | Scores correctness and faithfulness from 0 to 1 with a short reasoning, for the eval feature                                                                                       |
+| **Health**                 | `GET /health`                           | Liveness (no key needed)                                                                                                                                                           |
 
 ### How it keeps the AI honest
 
@@ -55,18 +59,20 @@ notebooks/      experiments with chunk sizes, prompts and retrieval
 Python · FastAPI · uv · Anthropic SDK (answers, judge) · OpenAI SDK (embeddings) · pymupdf (PDF) · python-docx (Word) ·
 trafilatura (web pages) · tiktoken (chunk sizing) · structlog · pytest.
 
-Note: `pyproject.toml` currently says Python `>=3.14`; the spec targets 3.12. Decide before the first dependency is added, since
-some libraries lag behind new Python versions.
+Python 3.12 (see `.python-version`). Models come from the environment: local Ollama (`llama3.2`) for chat now, OpenAI
+`text-embedding-3-small` (1536 dims, matching the DB column) for embeddings. To move chat to OpenAI, remove `LLM_BASE_URL` and change `LLM_API_KEY`, `LLM_MODEL`, `LLM_FAST_MODEL`.
 
 ## Run it
 
-Nothing to run yet. Once the service exists:
-
 ```bash
+cp config/.env.example config/.env   # fill in INTERNAL_API_KEY (same as the API's) and OPENAI_API_KEY
 uv sync
-uv run uvicorn ...        # http://localhost:8000
+uv run docmind-ai                     # http://localhost:8000 (or: uv run uvicorn docmind_ai.app:create_app --factory --reload)
 uv run pytest
+uv run ruff check . && uv run mypy src tests
 ```
+
+Local chat model: `ollama serve` running with `llama3.2` pulled.
 
 ## Where it fits
 

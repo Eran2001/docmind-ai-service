@@ -1,3 +1,11 @@
 {
-  "cSpell.words": ["dotenv", "ipykernel", "ollama", "gemma3"]
+  "cSpell.words": [
+    "dotenv",
+    "ipykernel",
+    "ollama",
+    "gemma3",
+    "dotenv",
+    "llama3",
+    "ipykernel"
+  ]
 }
