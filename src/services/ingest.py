@@ -4,6 +4,7 @@ from pydantic import BaseModel
 
 from core.chunking import Chunk, chunk_document
 from core.cleaning import ParsedDocument, remove_repeated_lines
+from core.config import get_settings
 from core.embeddings import EmbeddingClient
 from core.errors import AppError, ErrorCode
 from core.parsing import parse_file
@@ -26,7 +27,12 @@ class IngestResult(BaseModel):
 async def ingest_file(data: bytes, mime_type: str, embedder: EmbeddingClient) -> IngestResult:
     """Parse, clean, chunk and embed one file."""
     # Parsing and chunking are CPU-bound; keep them off the event loop.
-    document = await asyncio.to_thread(parse_file, data, mime_type)
+    document = await asyncio.to_thread(
+        parse_file,
+        data,
+        mime_type,
+        libreoffice_path=get_settings().libreoffice_path,
+    )
     return await _chunk_and_embed(document, embedder)
 
 

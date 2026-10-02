@@ -9,6 +9,7 @@ from docx.table import Table
 from docx.text.paragraph import Paragraph
 
 from core.cleaning import ParsedDocument, ParsedPage
+from core.doc_conversion import convert_doc_to_docx
 from core.errors import AppError, ErrorCode
 from core.logging import get_logger
 
@@ -16,6 +17,7 @@ log = get_logger(__name__)
 
 PDF = "application/pdf"
 DOCX = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+DOC = "application/msword"
 TEXT = "text/plain"
 MARKDOWN = "text/markdown"
 
@@ -24,8 +26,15 @@ _HEADING_MAX_CHARS = 100
 _BOLD_FLAG = 16
 
 
-def parse_file(data: bytes, mime_type: str) -> ParsedDocument:
-    """Extracts text from a PDF, DOCX, TXT or MD file. Headings come out as Markdown (`# Title`) lines."""
+def parse_file(data: bytes, mime_type: str, *, libreoffice_path: str | None = None) -> ParsedDocument:
+    """Extracts PDF, DOC, DOCX, TXT or MD text. Headings come out as Markdown (`# Title`) lines."""
+    if mime_type == DOC:
+        converted = convert_doc_to_docx(data, libreoffice_path)
+        document = _parse_docx(converted)
+        if not any(page.text.strip() for page in document.pages):
+            raise AppError(ErrorCode.EMPTY_DOCUMENT, "No text could be found in this document.")
+        return document
+
     parser = _PARSERS.get(mime_type)
     if parser is None:
         raise AppError(ErrorCode.PARSE_FAILED, f"Unsupported file type: {mime_type}.")

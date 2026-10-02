@@ -5,9 +5,9 @@ page they came from. The product story and the full picture are in `../docmind-w
 
 > **Status: building.** Done: the FastAPI skeleton (env validation, `X-Internal-Key`, JSON logs, `GET /health`), the model layer
 > (`core/llm.py` and `core/embeddings.py`: retries, timeouts, usage), and the document pipeline pieces (`core/parsing.py` for
-> PDF/DOCX/TXT/MD, `core/cleaning.py` for repeated headers and footers, `core/chunking.py`, `core/web.py` for web pages, and
+> PDF/DOC/DOCX/TXT/MD, `core/cleaning.py` for repeated headers and footers, `core/chunking.py`, `core/web.py` for web pages, and
 > `tools/` for the SSRF guard and safe fetcher). Endpoints live: `GET /health`, `POST /ingest/file`, `POST /ingest/url`,
-> `POST /embed`, `POST /rewrite-query`, `POST /title`, and `POST /answer` (JSON and SSE). Still to build: `/evals/judge`; the
+> `POST /embed`, `POST /rewrite-query`, `POST /title`, `POST /answer` (JSON and SSE) and `POST /evals/judge`. The
 > table below describes the full service. See `CLAUDE.md` for the rules.
 
 ## What this service does
@@ -37,7 +37,7 @@ Everything that needs a model or document parsing lives here, so the rest of the
 - **Internal only.** Every route except `/health` requires the `X-Internal-Key` header. It is never exposed publicly and the browser never calls it.
 - **Typed.** Pydantic models on every request and response; errors are `{ code, message }` with codes `PARSE_FAILED`, `EMPTY_DOCUMENT`,
   `URL_FETCH_FAILED`, `URL_BLOCKED`, `LLM_ERROR`.
-- **No hardcoded secrets or model names.** Configuration comes from the environment (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `LLM_MODEL`,
+- **No hardcoded secrets or model names.** Configuration comes from the environment (`OPENAI_API_KEY`, `LLM_BASE_URL`, `LLM_API_KEY`, `LLM_MODEL`,
   `LLM_FAST_MODEL`, `EMBEDDING_MODEL`, `INTERNAL_API_KEY`, ...).
 
 ## Planned layout
@@ -45,7 +45,7 @@ Everything that needs a model or document parsing lives here, so the rest of the
 ```
 src/
 ├── api/        FastAPI routers and the internal-key dependency
-├── core/       parsing, chunking, embeddings, the Anthropic wrapper (retries, timeouts, usage)
+├── core/       parsing, chunking, embeddings, the model wrapper (retries, timeouts, usage)
 ├── services/   orchestration that combines the pieces (ingest a file, stream an answer)
 ├── prompts/    every prompt lives here, and only here
 ├── tools/      helpers such as the SSRF guard
@@ -56,13 +56,15 @@ notebooks/      experiments with chunk sizes, prompts and retrieval
 
 ## Tech stack
 
-Python · FastAPI · uv · Anthropic SDK (answers, judge) · OpenAI SDK (embeddings) · pymupdf (PDF) · python-docx (Word) ·
+Python · FastAPI · uv · OpenAI SDK (answers and judge through any OpenAI-compatible endpoint, such as local Ollama; embeddings) · pymupdf (PDF) · python-docx (DOCX) · LibreOffice (legacy DOC) ·
 trafilatura (web pages) · tiktoken (chunk sizing) · structlog · pytest.
 
 Python 3.12 (see `.python-version`). Models come from the environment: local Ollama (`llama3.2`) for chat now, OpenAI
 `text-embedding-3-small` (1536 dims, matching the DB column) for embeddings. To move chat to OpenAI, remove `LLM_BASE_URL` and change `LLM_API_KEY`, `LLM_MODEL`, `LLM_FAST_MODEL`.
 
 ## Run it
+
+Legacy binary `.doc` files are converted to DOCX with LibreOffice. Install it locally (`brew install --cask libreoffice` on macOS); set `LIBREOFFICE_PATH` in `config/.env` if `soffice` isn't on `PATH`.
 
 ```bash
 cp config/.env.example config/.env   # fill in INTERNAL_API_KEY (same as the API's) and OPENAI_API_KEY
@@ -77,7 +79,7 @@ Local chat model: `ollama serve` running with `llama3.2` pulled.
 ## Where it fits
 
 ```
-web (Next.js) ──► API (NestJS) ──X-Internal-Key──► AI service (this)  ──► Anthropic / OpenAI
+web (Next.js) ──► API (NestJS) ──X-Internal-Key──► AI service (this)  ──► Ollama / OpenAI
                      │
                      └─ Postgres + Redis (the AI service never touches these)
 ```

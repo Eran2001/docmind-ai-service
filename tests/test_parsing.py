@@ -1,7 +1,7 @@
 import pytest
 
 from core.errors import AppError, ErrorCode
-from core.parsing import DOCX, MARKDOWN, PDF, TEXT, parse_file
+from core.parsing import DOC, DOCX, MARKDOWN, PDF, TEXT, parse_file
 from tests.builders import make_docx, make_pdf
 
 
@@ -52,6 +52,15 @@ def test_docx_keeps_headings_paragraphs_and_tables_in_order() -> None:
         "Tier | Days\n\nSenior | 30\n\n"
         "Ask HR for details."
     )
+
+
+def test_legacy_doc_uses_the_docx_parser_after_conversion(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("core.parsing.convert_doc_to_docx", lambda data, path: make_docx())
+
+    doc = parse_file(b"legacy word bytes", DOC)
+
+    assert doc.pages[0].text.startswith("# Leave policy")
+    assert "Employees get 25 days of paid leave." in doc.pages[0].text
 
 
 def test_corrupt_docx_fails_to_parse() -> None:

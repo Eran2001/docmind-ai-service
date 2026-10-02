@@ -14,6 +14,7 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     ai_host: str = "127.0.0.1"
     ai_port: int = 8000
+    libreoffice_path: str | None = None
 
     # Chat models. Ollama today (LLM_BASE_URL=http://localhost:11434/v1); unset the base URL to use OpenAI.
     llm_base_url: str | None = None
