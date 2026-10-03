@@ -19,6 +19,39 @@ MAX_JUDGE_CHUNKS = 20  # the API's top-k can be up to 20
 
 type Text = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=8000)]
 
+# "I couldn't find that in your documents", "not in the provided excerpts", "no information about ..."
+_NOT_FOUND = re.compile(
+    r"(?:couldn'?t|could not|can'?t|cannot|can not|didn'?t|did not|unable to|not able to) (?:find|locate)"
+    r"|not (?:in|present in|contained in|found in|mentioned in|covered in)"
+    r" (?:the |your )?(?:provided |given )?(?:documents?|excerpts?|sources?)"
+    r"|no (?:relevant )?information (?:about|on|in)",
+    re.IGNORECASE,
+)
+
+
+def says_not_found(text: str) -> bool:
+    """Any sentence says the information isn't there. Used on the expected answer (we write those)."""
+    return bool(_NOT_FOUND.search(text))
+
+
+_SUGGESTION = re.compile(r"^try asking", re.IGNORECASE)
+_SENTENCES = re.compile(r"(?<=[.!?])\s+")
+
+
+def is_only_not_found(text: str) -> bool:
+    """The answer is nothing but "I couldn't find that" (optionally followed by "Try asking about ...").
+
+    An answer that says it couldn't find something and then gives one anyway is not "only not found".
+    """
+    cleaned = re.sub(r"\[\d+\]", "", text).replace("*", "").replace("_", "").strip()
+    sentences = [s.strip() for s in _SENTENCES.split(cleaned) if s.strip()]
+    if not sentences:
+        return False
+    return any(_NOT_FOUND.search(s) for s in sentences) and all(
+        _NOT_FOUND.search(s) or _SUGGESTION.match(s) for s in sentences
+    )
+
+
 _JSON_OBJECT = re.compile(r"\{.*\}", re.DOTALL)
 
 
@@ -37,6 +70,25 @@ class JudgeResult(BaseModel):
 
 
 async def judge_answer(llm: LlmClient, *, model: str, request: JudgeInput) -> JudgeResult:
+    expected_not_found = says_not_found(request.expected)
+    generated_not_found = is_only_not_found(request.generated)
+    free = Usage(model=model, input_tokens=0, output_tokens=0, latency_ms=0)
+    # "Not in the documents" cases are decided by rule: small judge models are unreliable on them.
+    if expected_not_found and generated_not_found:
+        return JudgeResult(
+            correctness=1.0,
+            faithfulness=1.0,
+            reasoning="Both say the answer is not in the documents.",
+            usage=free,
+        )
+    if generated_not_found and not expected_not_found:
+        return JudgeResult(
+            correctness=0.0,
+            faithfulness=1.0,
+            reasoning="The answer says it could not find the information, but the expected answer has it.",
+            usage=free,
+        )
+
     result = await llm.complete(
         [
             ChatMessage(role="system", content=JUDGE_SYSTEM_PROMPT),
@@ -52,6 +104,9 @@ async def judge_answer(llm: LlmClient, *, model: str, request: JudgeInput) -> Ju
         temperature=JUDGE_TEMPERATURE,
     )
     scores = _parse(result.text)
+    if expected_not_found:
+        # The expected answer is "it isn't there", yet the answer states something: wrong however it reads.
+        scores["correctness"] = 0.0
     return JudgeResult(**scores, usage=result.usage)
 
 

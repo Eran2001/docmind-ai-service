@@ -3,7 +3,7 @@ import pytest
 
 from core import retry
 from core.errors import AppError, ErrorCode
-from core.llm import ChatMessage, LlmClient, StreamDone, StreamEvent, TextDelta
+from core.llm import REASONING_HEADROOM, ChatMessage, LlmClient, StreamDone, StreamEvent, TextDelta
 from tests.fakes import Script, completion, fake_openai, status_error, stream_chunk
 
 MESSAGES = [ChatMessage(role="user", content="hi")]
@@ -71,3 +71,57 @@ async def test_stream_retries_before_first_token() -> None:
 
     assert isinstance(events[0], TextDelta)
     assert len(chat.calls) == 2
+
+
+async def test_reasoning_models_get_no_temperature_extra_headroom_and_a_low_effort() -> None:
+    chat = Script(completion("ok"))
+    llm = LlmClient(fake_openai(chat=chat))
+
+    await llm.complete(MESSAGES, model="gpt-5", max_tokens=300, temperature=0)
+
+    call = chat.calls[0]
+    assert "temperature" not in call
+    assert call["max_completion_tokens"] == 300 + REASONING_HEADROOM
+    assert call["reasoning_effort"] == "low"
+
+
+async def test_the_reasoning_effort_can_be_configured() -> None:
+    chat = Script(completion("ok"))
+    llm = LlmClient(fake_openai(chat=chat), reasoning_effort="minimal")
+
+    await llm.complete(MESSAGES, model="gpt-5-mini", max_tokens=10, temperature=0)
+
+    assert chat.calls[0]["reasoning_effort"] == "minimal"
+
+
+async def test_normal_models_keep_temperature_and_get_no_reasoning_parameters() -> None:
+    chat = Script(completion("ok"))
+    llm = LlmClient(fake_openai(chat=chat), reasoning_effort="high")
+
+    await llm.complete(MESSAGES, model="llama3.2", max_tokens=100, temperature=0.2)
+
+    call = chat.calls[0]
+    assert call["temperature"] == 0.2 and call["max_completion_tokens"] == 100
+    assert "reasoning_effort" not in call
+
+
+async def test_streaming_reasoning_models_get_the_same_treatment() -> None:
+    chat = Script([stream_chunk("Hi"), stream_chunk(usage=(5, 1))])
+    llm = LlmClient(fake_openai(chat=chat))
+
+    _ = [e async for e in llm.stream(MESSAGES, model="gpt-5", max_tokens=50, temperature=0.2)]
+
+    assert "temperature" not in chat.calls[0]
+    assert chat.calls[0]["reasoning_effort"] == "low"
+
+
+def test_a_blank_llm_api_key_falls_back_to_the_openai_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    from core.config import Settings, get_settings
+
+    monkeypatch.setenv("LLM_API_KEY", "")
+    get_settings.cache_clear()
+
+    settings = Settings()  # type: ignore[call-arg]
+
+    assert settings.llm_api_key is None
+    assert settings.openai_api_key.get_secret_value() == "sk-test"

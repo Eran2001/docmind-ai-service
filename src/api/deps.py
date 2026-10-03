@@ -16,6 +16,32 @@ def get_llm() -> LlmClient:
 
 
 @cache
+def get_judge_llm() -> LlmClient:
+    """The client for grading evals: the separate judge model if one is configured, else the chat client."""
+    settings = get_settings()
+    if not settings.llm_judge_model:
+        return get_llm()
+    key = settings.llm_judge_api_key or settings.openai_api_key
+    return LlmClient.from_parts(
+        settings.llm_judge_base_url, key.get_secret_value(), settings.llm_judge_reasoning_effort
+    )
+
+
+@cache
+def get_rerank_llm() -> LlmClient:
+    """The client for reranking: a separate model if LLM_RERANK_MODEL is set, otherwise the chat client."""
+    settings = get_settings()
+    if not settings.llm_rerank_model:
+        return get_llm()
+    key = settings.llm_rerank_api_key or settings.openai_api_key
+    return LlmClient.from_parts(
+        settings.llm_rerank_base_url,
+        key.get_secret_value(),
+        settings.llm_rerank_reasoning_effort or "minimal",
+    )
+
+
+@cache
 def get_embedder() -> EmbeddingClient:
     return EmbeddingClient.from_settings(get_settings())
 

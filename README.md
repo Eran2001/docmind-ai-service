@@ -62,6 +62,14 @@ trafilatura (web pages) · tiktoken (chunk sizing) · structlog · pytest.
 Python 3.12 (see `.python-version`). Models come from the environment: local Ollama (`llama3.2`) for chat now, OpenAI
 `text-embedding-3-small` (1536 dims, matching the DB column) for embeddings. To move chat to OpenAI, remove `LLM_BASE_URL` and change `LLM_API_KEY`, `LLM_MODEL`, `LLM_FAST_MODEL`.
 
+**The eval judge.** `POST /evals/judge` grades with `LLM_MODEL` unless `LLM_JUDGE_MODEL` is set; a small local model is a noisy judge,
+so a stronger one (for example `LLM_JUDGE_MODEL=gpt-5` with `LLM_JUDGE_BASE_URL` empty, which sends it to OpenAI with
+`LLM_JUDGE_API_KEY` or `OPENAI_API_KEY`) gives scores you can trust more. Cases where the expected answer is "it isn't in the documents"
+are scored by rule, without a model call. OpenAI reasoning models (`gpt-5`, o-series) are handled by `core/llm.py`: it sends no
+`temperature`, adds headroom for their hidden thinking and sets `reasoning_effort` (`LLM_REASONING_EFFORT` /
+`LLM_JUDGE_REASONING_EFFORT`, default `low`). Rule-scored cases: both saying it is not there is 1.0, saying it is not there when the answer exists is 0.0, and
+stating an answer when none exists is 0.0.
+
 ## Run it
 
 Legacy binary `.doc` files are converted to DOCX with LibreOffice. Install it locally (`brew install --cask libreoffice` on macOS); set `LIBREOFFICE_PATH` in `config/.env` if `soffice` isn't on `PATH`.

@@ -124,3 +124,13 @@ def test_whitespace_is_normalized() -> None:
     chunk = chunk_document(text_doc(text))[0]
 
     assert chunk.content == " ".join(text.split())
+
+
+def test_chunk_size_and_overlap_can_be_changed() -> None:
+    text = sentences(300)
+
+    small = chunk_document(text_doc(text), target_tokens=150, overlap_tokens=30)
+    default = chunk_document(text_doc(text))
+
+    assert len(small) > len(default)
+    assert all(c.token_count <= 150 for c in small)

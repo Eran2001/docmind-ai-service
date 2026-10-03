@@ -1,6 +1,6 @@
 import time
 from collections.abc import AsyncIterator
-from typing import Literal, cast
+from typing import Any, Literal, cast
 
 import openai
 from openai import AsyncOpenAI
@@ -40,21 +40,54 @@ class StreamDone(BaseModel):
 type StreamEvent = TextDelta | StreamDone
 
 
+REASONING_HEADROOM = 3000  # tokens a reasoning model may spend thinking, on top of the visible answer
+DEFAULT_REASONING_EFFORT = "low"
+
+
+def is_reasoning_model(model: str) -> bool:
+    """OpenAI's GPT-5 and o-series models think before answering and take different parameters."""
+    return model.startswith(("gpt-5", "o1", "o3", "o4"))
+
+
 class LlmClient:
     """Chat completions against any OpenAI-compatible endpoint (Ollama today, OpenAI later)."""
 
-    def __init__(self, client: AsyncOpenAI) -> None:
+    def __init__(self, client: AsyncOpenAI, reasoning_effort: str | None = None) -> None:
         self._client = client
+        self._reasoning_effort = reasoning_effort
 
     @classmethod
     def from_settings(cls, settings: Settings) -> "LlmClient":
+        return cls.from_parts(
+            settings.llm_base_url,
+            (settings.llm_api_key or settings.openai_api_key).get_secret_value(),
+            settings.llm_reasoning_effort,
+        )
+
+    @classmethod
+    def from_parts(
+        cls, base_url: str | None, api_key: str, reasoning_effort: str | None = None
+    ) -> "LlmClient":
         client = AsyncOpenAI(
-            base_url=settings.llm_base_url,
-            api_key=settings.llm_api_key.get_secret_value(),
+            base_url=base_url,
+            api_key=api_key,
             timeout=TIMEOUT_SECONDS,
             max_retries=0,  # retries are ours (core/retry.py) so they follow the spec's policy
         )
-        return cls(client)
+        return cls(client, reasoning_effort)
+
+    def _params(self, model: str, max_tokens: int, temperature: float) -> dict[str, Any]:
+        """Per-call sampling parameters.
+
+        Reasoning models reject `temperature`, and their hidden thinking counts against the token limit,
+        so they get extra headroom and a (low by default) reasoning effort instead.
+        """
+        if is_reasoning_model(model):
+            return {
+                "max_completion_tokens": max_tokens + REASONING_HEADROOM,
+                "reasoning_effort": self._reasoning_effort or DEFAULT_REASONING_EFFORT,
+            }
+        return {"max_completion_tokens": max_tokens, "temperature": temperature}
 
     async def complete(
         self, messages: list[ChatMessage], *, model: str, max_tokens: int, temperature: float
@@ -64,9 +97,8 @@ class LlmClient:
             response = await with_retries(
                 lambda: self._client.chat.completions.create(
                     model=model,
-                    messages=_params(messages),
-                    max_completion_tokens=max_tokens,
-                    temperature=temperature,
+                    messages=_messages(messages),
+                    **self._params(model, max_tokens, temperature),
                 )
             )
         except openai.OpenAIError as exc:
@@ -94,9 +126,8 @@ class LlmClient:
             chunks = await with_retries(
                 lambda: self._client.chat.completions.create(
                     model=model,
-                    messages=_params(messages),
-                    max_completion_tokens=max_tokens,
-                    temperature=temperature,
+                    messages=_messages(messages),
+                    **self._params(model, max_tokens, temperature),
                     stream=True,
                     stream_options={"include_usage": True},
                 )
@@ -120,7 +151,7 @@ class LlmClient:
         )
 
 
-def _params(messages: list[ChatMessage]) -> list[ChatCompletionMessageParam]:
+def _messages(messages: list[ChatMessage]) -> list[ChatCompletionMessageParam]:
     return cast(list[ChatCompletionMessageParam], [m.model_dump() for m in messages])
 
 

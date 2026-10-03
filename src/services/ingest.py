@@ -59,7 +59,8 @@ async def _chunk_and_embed(document: ParsedDocument, embedder: EmbeddingClient) 
 
 def _chunk(document: ParsedDocument) -> list[Chunk]:
     cleaned = document.model_copy(update={"pages": remove_repeated_lines(document.pages)})
-    chunks = chunk_document(cleaned)
+    settings = get_settings()
+    chunks = chunk_document(cleaned, settings.chunk_tokens, settings.chunk_overlap_tokens)
     if not chunks:
         raise AppError(ErrorCode.EMPTY_DOCUMENT, "This document has too little text to index.")
     return chunks
